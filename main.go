@@ -39,6 +39,8 @@ var actionsHandler = map[string]ActionFunc{
 	"marco": marcoPolo,
 }
 
+var chatsToNotify []int64
+
 func main() {
 	load_env()
 	http.ListenAndServe(":8080", http.HandlerFunc(handler))
@@ -81,10 +83,10 @@ func handler(w http.ResponseWriter, r *http.Request) {
 
 }
 
-func marcoPolo(chatId int64) error {
+func messageSender(chatId int64, message string) error {
 	reqBody := &sendMessageReqBody{
 		ChatID: chatId,
-		Text:   "Polo!!",
+		Text:   message,
 	}
 
 	reqBytes, err := json.Marshal(reqBody)
@@ -101,6 +103,11 @@ func marcoPolo(chatId int64) error {
 	}
 
 	return nil
+}
+
+func marcoPolo(chatId int64) error {
+	chatsToNotify = append(chatsToNotify, chatId)
+	return messageSender(chatId, "Polo!!")
 }
 
 func contains(s []string, e string) bool {
