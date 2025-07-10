@@ -23,7 +23,7 @@ This is **not** meant to be a production-ready solution, nor should it be used i
 - _Optional_: socat (if you want to send messages to the socket from the command line)
 
 ## Installing and Running
-
+Installing isn't still in an idiomatic way for go programs, and this will be revised soon.
 1. **Clone this repository:**
    ```bash
    git clone https://github.com/germanocorrea/brokerbot.git
