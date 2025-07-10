@@ -7,9 +7,14 @@ import (
 	"fmt"
 	"github.com/joho/godotenv"
 	"log"
+	"net"
 	"net/http"
 	"os"
+	"os/signal"
+	"path/filepath"
 	"strings"
+	"sync"
+	"syscall"
 )
 
 type ActionFunc func(chatId int64) error
@@ -41,9 +46,14 @@ var actionsHandler = map[string]ActionFunc{
 
 var chatsToNotify []int64
 
+var wg sync.WaitGroup
+
 func main() {
+	wg.Add(1)
 	load_env()
+	go systemMessageBroker()
 	http.ListenAndServe(":8080", http.HandlerFunc(handler))
+	wg.Wait()
 }
 
 func load_env() {
@@ -117,4 +127,62 @@ func contains(s []string, e string) bool {
 		}
 	}
 	return false
+}
+
+func getSocketPath() string {
+	runtimeDir := os.Getenv("XDG_RUNTIME_DIR")
+	if runtimeDir != "" {
+		return filepath.Join(runtimeDir, "arch_broker_bot.sock")
+	}
+	return "/tmp/arch_broker_bot.sock"
+}
+
+func newMessageConnection(conn net.Conn) {
+	defer func(conn net.Conn) {
+		err := conn.Close()
+		if err != nil {
+			log.Fatal(err)
+		}
+	}(conn)
+
+	buf := make([]byte, 4096)
+	n, err := conn.Read(buf)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	message := buf[:n]
+
+	for i := range chatsToNotify {
+		err := messageSender(chatsToNotify[i], string(message))
+		if err != nil {
+			log.Fatal(err)
+		}
+	}
+
+}
+
+func systemMessageBroker() {
+	defer wg.Done()
+
+	socket, err := net.Listen("unix", getSocketPath())
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	c := make(chan os.Signal, 1)
+	signal.Notify(c, os.Interrupt, syscall.SIGTERM)
+	go func() {
+		<-c
+		os.Remove(getSocketPath())
+		os.Exit(1)
+	}()
+
+	for {
+		conn, err := socket.Accept()
+		if err != nil {
+			log.Fatal(err)
+		}
+		go newMessageConnection(conn)
+	}
 }
