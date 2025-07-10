@@ -1,4 +1,4 @@
-module arch_carrier_bot
+module brokerbot
 
 go 1.24
 
