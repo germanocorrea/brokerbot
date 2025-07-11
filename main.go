@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"github.com/joho/godotenv"
 	"log"
 	"net"
@@ -52,7 +51,10 @@ func main() {
 	wg.Add(1)
 	load_env()
 	go systemMessageBroker()
-	http.ListenAndServe(":8080", http.HandlerFunc(handler))
+	err := http.ListenAndServe(":8080", http.HandlerFunc(handler))
+	if err != nil {
+		log.Fatal(err)
+	}
 	wg.Wait()
 }
 
@@ -74,7 +76,7 @@ func load_env() {
 	usersAllowList = strings.Split(usersAllowListUnparsed, ",")
 }
 
-func handler(w http.ResponseWriter, r *http.Request) {
+func handler(_ http.ResponseWriter, r *http.Request) {
 	body := &webhookReqBody{}
 	if err := json.NewDecoder(r.Body).Decode(body); err != nil {
 		log.Println("Could not decode request body:", err)
@@ -137,9 +139,9 @@ func contains(s []string, e string) bool {
 func getSocketPath() string {
 	runtimeDir := os.Getenv("XDG_RUNTIME_DIR")
 	if runtimeDir != "" {
-		return filepath.Join(runtimeDir, "arch_broker_bot.sock")
+		return filepath.Join(runtimeDir, "brokerbot.sock")
 	}
-	return "/tmp/arch_broker_bot.sock"
+	return "/tmp/brokerbot.sock"
 }
 
 func newMessageConnection(conn net.Conn) {
@@ -179,7 +181,10 @@ func systemMessageBroker() {
 	signal.Notify(c, os.Interrupt, syscall.SIGTERM)
 	go func() {
 		<-c
-		os.Remove(getSocketPath())
+		err := os.Remove(getSocketPath())
+		if err != nil {
+			log.Println("Error removing socket:", err)
+		}
 		os.Exit(1)
 	}()
 
