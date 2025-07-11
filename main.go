@@ -63,34 +63,39 @@ func load_env() {
 	}
 
 	token = os.Getenv("TOKEN")
+	if token == "" {
+		log.Fatal("Error: TOKEN environment variable is not set")
+	}
+
 	usersAllowListUnparsed := os.Getenv("USERS_ALLOW_LIST")
+	if usersAllowListUnparsed == "" {
+		log.Println("Warning: USERS_ALLOW_LIST not set, all users will be denied")
+	}
 	usersAllowList = strings.Split(usersAllowListUnparsed, ",")
 }
 
 func handler(w http.ResponseWriter, r *http.Request) {
 	body := &webhookReqBody{}
 	if err := json.NewDecoder(r.Body).Decode(body); err != nil {
-		fmt.Println("could not decode request body", err)
+		log.Println("Could not decode request body:", err)
 		return
 	}
 
 	if !contains(usersAllowList, body.Message.From.Username) {
-		fmt.Println("user not allowed")
+		return
 	}
 
 	handler := actionsHandler[strings.ToLower(body.Message.Text)]
 	if handler == nil {
-		fmt.Println("no handler for this action")
 		return
 	}
 
 	if err := handler(body.Message.Chat.ID); err != nil {
-		fmt.Println("error in sending reply:", err)
+		log.Println("Error in sending reply:", err)
 		return
 	}
 
-	fmt.Println("reply sent")
-
+	log.Println("Reply sent successfully")
 }
 
 func messageSender(chatId int64, message string) error {
