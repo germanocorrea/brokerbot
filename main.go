@@ -2,12 +2,15 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
-	"github.com/joho/godotenv"
+	"flag"
+	"golang.ngrok.com/ngrok/v2"
 	"log"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -15,8 +18,6 @@ import (
 	"sync"
 	"syscall"
 )
-
-type ActionFunc func(chatId int64) error
 
 type webhookReqBody struct {
 	Message struct {
@@ -31,49 +32,143 @@ type webhookReqBody struct {
 	} `json:"message"`
 }
 
+type ActionFunc func(message webhookReqBody) error
+
 type sendMessageReqBody struct {
 	ChatID int64  `json:"chat_id"`
 	Text   string `json:"text"`
 }
 
 var token string
-var usersAllowList []string
+var password string
+var socketPath string
+var useNgrok bool
+var address string
 
 var actionsHandler = map[string]ActionFunc{
 	"marco": marcoPolo,
 }
 
 var chatsToNotify []int64
-
 var wg sync.WaitGroup
 
 func main() {
-	wg.Add(1)
-	load_env()
-	go systemMessageBroker()
-	err := http.ListenAndServe(":8080", http.HandlerFunc(handler))
-	if err != nil {
-		log.Fatal(err)
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	wg.Add(2)
+	loadFlags()
+	if useNgrok && os.Getenv("NGROK_AUTHTOKEN") == "" {
+		log.Fatal("Error: NGROK_AUTHTOKEN environment variable is not set")
 	}
+
+	go func() {
+		defer wg.Done()
+		systemMessageBroker(ctx)
+	}()
+
+	go func() {
+		if err := startWebhook(ctx); err != nil && !errors.Is(err, context.Canceled) && !errors.Is(err, net.ErrClosed) {
+			log.Printf("Webhook server error: %v", err)
+		}
+	}()
+
+	log.Println("Bot started, press Ctrl+C to stop")
+	<-ctx.Done()
+
+	log.Println("Shutting services down...")
 	wg.Wait()
+	log.Println("Done")
+
 }
 
-func load_env() {
-	err := godotenv.Load()
-	if err != nil {
-		log.Fatal("Error loading .env file")
-	}
+func loadFlags() {
+	tokenFlag := flag.String("token", "", "Telegram bot token")
+	passwordFlag := flag.String("password", "", "Password to interact with the bot")
+	socketFlag := flag.String("socketPath", "", "Path to the unix socketPath to listen to")
+	ngrokFlag := flag.Bool("ngrok", false, "Use ngrok for the webhook")
+	addressFlag := flag.String("address", "", "Webhook address to listen to")
 
-	token = os.Getenv("TOKEN")
+	flag.Parse()
+
+	token = *tokenFlag
 	if token == "" {
 		log.Fatal("Error: TOKEN environment variable is not set")
 	}
-
-	usersAllowListUnparsed := os.Getenv("USERS_ALLOW_LIST")
-	if usersAllowListUnparsed == "" {
-		log.Println("Warning: USERS_ALLOW_LIST not set, all users will be denied")
+	password = *passwordFlag
+	if password == "" {
+		log.Println("Warning: password not set, all users will be allowed to interact with the bot")
 	}
-	usersAllowList = strings.Split(usersAllowListUnparsed, ",")
+	socketPath = *socketFlag
+	if socketPath == "" {
+		socketPath = getSocketPath()
+	}
+
+	address = *addressFlag
+	if address == "" {
+		address = ":8080"
+	}
+
+	useNgrok = *ngrokFlag
+}
+
+func startWebhook(ctx context.Context) error {
+	err := error(nil)
+	if !useNgrok {
+		err = serveStandard()
+	} else {
+		err = serveNgrok(ctx)
+	}
+
+	if ctx.Err() != nil {
+		log.Println("Webhook server stopped")
+		return nil
+	}
+	return err
+}
+
+func serveStandard() error {
+	ln, err := net.Listen("tcp", address)
+	if err != nil {
+		return err
+	}
+	if err := setWebhook(address); err != nil {
+		ln.Close()
+		return err
+	}
+	return http.Serve(ln, http.HandlerFunc(handler))
+}
+
+func serveNgrok(ctx context.Context) error {
+	ln, err := ngrok.Listen(ctx)
+	if err != nil {
+		return err
+	}
+	address = ln.URL().String()
+	if err := setWebhook(address); err != nil {
+		ln.Close()
+		return err
+	}
+	return http.Serve(ln, http.HandlerFunc(handler))
+}
+
+func setWebhook(address string) error {
+	base, err := url.Parse("https://api.telegram.org/bot" + token + "/setWebhook")
+	if err != nil {
+		return err
+	}
+	params := url.Values{}
+	params.Add("url", address)
+	base.RawQuery = params.Encode()
+	res, err := http.Get(base.String())
+	if err != nil {
+		return err
+	}
+	if res.StatusCode != http.StatusOK {
+		return errors.New("unexpected status " + res.Status)
+	}
+	log.Println("Webhook set successfully")
+	return nil
 }
 
 func handler(_ http.ResponseWriter, r *http.Request) {
@@ -83,8 +178,11 @@ func handler(_ http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if !contains(usersAllowList, body.Message.From.Username) {
-		return
+	if !contains(chatsToNotify, body.Message.Chat.ID) {
+		if err := authHandler(*body); err != nil {
+			log.Println("Bot auth error:", err)
+			return
+		}
 	}
 
 	handler := actionsHandler[strings.ToLower(body.Message.Text)]
@@ -92,7 +190,7 @@ func handler(_ http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := handler(body.Message.Chat.ID); err != nil {
+	if err := handler(*body); err != nil {
 		log.Println("Error in sending reply:", err)
 		return
 	}
@@ -122,12 +220,20 @@ func messageSender(chatId int64, message string) error {
 	return nil
 }
 
-func marcoPolo(chatId int64) error {
-	chatsToNotify = append(chatsToNotify, chatId)
+func authHandler(message webhookReqBody) error {
+	if password != "" && message.Message.Text != password {
+		return errors.New("Unauthorized")
+	}
+	chatsToNotify = append(chatsToNotify, message.Message.Chat.ID)
+	return messageSender(message.Message.Chat.ID, "Authorized")
+}
+
+func marcoPolo(message webhookReqBody) error {
+	chatId := message.Message.Chat.ID
 	return messageSender(chatId, "Polo!!")
 }
 
-func contains(s []string, e string) bool {
+func contains[T comparable](s []T, e T) bool {
 	for _, a := range s {
 		if a == e {
 			return true
@@ -169,28 +275,29 @@ func newMessageConnection(conn net.Conn) {
 
 }
 
-func systemMessageBroker() {
+func systemMessageBroker(ctx context.Context) {
 	defer wg.Done()
 
-	socket, err := net.Listen("unix", getSocketPath())
+	socket, err := net.Listen("unix", socketPath)
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	c := make(chan os.Signal, 1)
-	signal.Notify(c, os.Interrupt, syscall.SIGTERM)
 	go func() {
-		<-c
-		err := os.Remove(getSocketPath())
-		if err != nil {
-			log.Println("Error removing socket:", err)
+		<-ctx.Done()
+		socket.Close()
+		if err := os.Remove(socketPath); err != nil {
+			log.Println("Error removing unix socket:", err)
 		}
-		os.Exit(1)
 	}()
 
 	for {
 		conn, err := socket.Accept()
 		if err != nil {
+			if ctx.Err() != nil {
+				log.Println("System message broker stopped")
+				return
+			}
 			log.Fatal(err)
 		}
 		go newMessageConnection(conn)
