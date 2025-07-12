@@ -225,7 +225,11 @@ func authHandler(message webhookReqBody) error {
 		return errors.New("Unauthorized")
 	}
 	chatsToNotify = append(chatsToNotify, message.Message.Chat.ID)
-	return messageSender(message.Message.Chat.ID, "Authorized")
+	if password != "" {
+		return messageSender(message.Message.Chat.ID, "Authorized")
+	}
+
+	return nil
 }
 
 func marcoPolo(message webhookReqBody) error {
