@@ -30,29 +30,29 @@ Installing isn't still in an idiomatic way for go programs, and this will be rev
    cd brokerbot
    ```
 
-2. **Configure the environment:**
-   - Create an `.env` file using `example.env` as a template
-   - Add your Telegram bot token and comma-separated list of allowed usernames:
+2. **Configure the application:**
+   - The application uses command-line flags for configuration:
      ```
-     TOKEN=your_telegram_bot_token
-     USERS_ALLOW_LIST=username1,username2
+     -token        Telegram bot token (required)
+     -password     Password to interact with the bot
+     -socketPath   Path to the unix socket to listen to (defaults to $XDG_RUNTIME_DIR/brokerbot.sock or /tmp/brokerbot.sock)
+     -ngrok        Use ngrok for the webhook (requires NGROK_AUTHTOKEN environment variable)
+     -address      Webhook address to listen to (defaults to :8080)
      ```
 
 3. **Start the server:**
    - You can build, or simply:
    ```bash
-   go run main.go
+   go run main.go -token=foobar -ngrok
    ```
 
 4. **Configure the webhook:**
-   - Run the bash script to expose the local server and configure the Telegram webhook automatically:
-     ```bash
-     ./webhook_wrapper.sh
-     ```
+   - If you're using ngrok (with the `--ngrok` flag), make sure the `NGROK_AUTHTOKEN` environment variable is set
+   - The webhook will be automatically configured when the application starts
+   - If not using ngrok, ensure your server is accessible from the internet and specify the address with `--address`
 
 5. **Initialize chat reception:**
-   - Send a message containing only "marco" to your bot on Telegram
-   - When the bot replies with "Polo!!", your chat is registered to receive messages
+   - If you set a password with the `--password` flag, send a message with this password to your bot on Telegram to authenticate
    - Note: Since persistence isn't implemented yet, you'll need to do this every time the server restarts
 
 6. **Send messages to the bot:**
@@ -74,13 +74,13 @@ echo "Backup completed successfully at $(date)" | socat - UNIX-CONNECT:"$XDG_RUN
 
 ## Roadmap
 - [x] HTTP server for Telegram bot webhook
-- [x] Simple authentication through username allowlist
+- [x] Authentication system
 - [x] Pooling for messages sent through UNIX socket
+- [x] Improve configuration: replace the .env file with command-line arguments
+- [x] Allow configuration of the server port
+- [x] Integrate ngrok initialization directly into the application
 - [ ] Allow choosing between webhook and message polling
-- [ ] Improve configuration: replace the .env file with command-line arguments
-- [ ] Allow configuration of the server port
 - [ ] Persist chat IDs and other configurations (SQLite?)
-- [ ] Integrate ngrok initialization directly into the application
 - [ ] Add message formatting options
 - [ ] Add commands for bot management
 
