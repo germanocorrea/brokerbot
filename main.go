@@ -44,6 +44,7 @@ var password string
 var socketPath string
 var useNgrok bool
 var address string
+var webhookSecretToken string
 
 var actionsHandler = map[string]ActionFunc{
 	"marco": marcoPolo,
@@ -85,9 +86,10 @@ func main() {
 func loadFlags() {
 	tokenFlag := flag.String("token", "", "Telegram bot token")
 	passwordFlag := flag.String("password", "", "Password to interact with the bot")
-	socketFlag := flag.String("socketPath", "", "Path to the unix socketPath to listen to")
+	socketFlag := flag.String("socket", "", "Path to the unix socketPath to listen to")
 	ngrokFlag := flag.Bool("ngrok", false, "Use ngrok for the webhook")
 	addressFlag := flag.String("address", "", "Webhook address to listen to")
+	webhookSecretTokenFlag := flag.String("webhook-secret-token", "", "Telegram's webhook secret token")
 
 	flag.Parse()
 
@@ -103,6 +105,7 @@ func loadFlags() {
 	if socketPath == "" {
 		socketPath = getSocketPath()
 	}
+	log.Println("Using socket:", socketPath)
 
 	address = *addressFlag
 	if address == "" {
@@ -110,6 +113,11 @@ func loadFlags() {
 	}
 
 	useNgrok = *ngrokFlag
+
+	webhookSecretToken = *webhookSecretTokenFlag
+	if webhookSecretToken != "" {
+		log.Println("Using webhook secret token:", webhookSecretToken)
+	}
 }
 
 func startWebhook(ctx context.Context) error {
@@ -159,6 +167,9 @@ func setWebhook(address string) error {
 	}
 	params := url.Values{}
 	params.Add("url", address)
+	if webhookSecretToken != "" {
+		params.Add("secret_token", webhookSecretToken)
+	}
 	base.RawQuery = params.Encode()
 	res, err := http.Get(base.String())
 	if err != nil {
@@ -172,6 +183,10 @@ func setWebhook(address string) error {
 }
 
 func handler(_ http.ResponseWriter, r *http.Request) {
+	if r.Header.Get("X-Telegram-Bot-Api-Secret-Token") != webhookSecretToken {
+		log.Println("Invalid webhook secret token")
+		return
+	}
 	body := &webhookReqBody{}
 	if err := json.NewDecoder(r.Body).Decode(body); err != nil {
 		log.Println("Could not decode request body:", err)
@@ -285,6 +300,8 @@ func systemMessageBroker(ctx context.Context) {
 	socket, err := net.Listen("unix", socketPath)
 	if err != nil {
 		log.Fatal(err)
+	} else {
+		log.Println("System message broker started")
 	}
 
 	go func() {
