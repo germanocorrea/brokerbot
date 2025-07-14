@@ -273,14 +273,14 @@ func newMessageConnection(conn net.Conn) {
 	defer func(conn net.Conn) {
 		err := conn.Close()
 		if err != nil {
-			log.Fatal(err)
+			log.Fatal("Error closing socket connection:", err)
 		}
 	}(conn)
 
 	buf := make([]byte, 4096)
 	n, err := conn.Read(buf)
 	if err != nil {
-		log.Fatal(err)
+		log.Fatal("Error reading from socket:", err)
 	}
 
 	message := buf[:n]
@@ -288,7 +288,7 @@ func newMessageConnection(conn net.Conn) {
 	for i := range chatsToNotify {
 		err := messageSender(chatsToNotify[i], string(message))
 		if err != nil {
-			log.Fatal(err)
+			log.Fatal("Error sending message to telegram:", err)
 		}
 	}
 
@@ -299,7 +299,7 @@ func systemMessageBroker(ctx context.Context) {
 
 	socket, err := net.Listen("unix", socketPath)
 	if err != nil {
-		log.Fatal(err)
+		log.Fatal("Failed listening to socket:", err)
 	} else {
 		log.Println("System message broker started")
 	}
@@ -319,7 +319,7 @@ func systemMessageBroker(ctx context.Context) {
 				log.Println("System message broker stopped")
 				return
 			}
-			log.Fatal(err)
+			log.Fatal("Error reading from socket:", err)
 		}
 		go newMessageConnection(conn)
 	}
