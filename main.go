@@ -7,6 +7,7 @@ import (
 	"errors"
 	"flag"
 	"golang.ngrok.com/ngrok/v2"
+	"io"
 	"log"
 	"net"
 	"net/http"
@@ -279,7 +280,9 @@ func newMessageConnection(conn net.Conn) {
 
 	buf := make([]byte, 4096)
 	n, err := conn.Read(buf)
-	if err != nil {
+	if err == io.EOF {
+		log.Println("Client disconnected")
+	} else if err != nil {
 		log.Fatal("Error reading from socket:", err)
 	}
 
@@ -319,7 +322,7 @@ func systemMessageBroker(ctx context.Context) {
 				log.Println("System message broker stopped")
 				return
 			}
-			log.Fatal("Error reading from socket:", err)
+			log.Println("Error reading from socket:", err)
 		}
 		go newMessageConnection(conn)
 	}
