@@ -79,7 +79,7 @@ echo "Backup completed successfully at $(date)" | socat - UNIX-CONNECT:"$XDG_RUN
 - [x] Improve configuration: replace the .env file with command-line arguments
 - [x] Allow configuration of the server port
 - [x] Integrate ngrok initialization directly into the application
-- [ ] Allow choosing between webhook and message polling
+- [ ] Allow choosing between webhook and message polling, and set message polling automatically if ngrok fails
 - [ ] Persist chat IDs and other configurations (SQLite?)
 - [ ] Add message formatting options
 - [ ] Add commands for bot management
