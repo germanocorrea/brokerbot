@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -15,6 +16,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"syscall"
@@ -46,6 +48,7 @@ var socketPath string
 var useNgrok bool
 var address string
 var webhookSecretToken string
+var chatListFile = ""
 
 var actionsHandler = map[string]ActionFunc{
 	"marco": marcoPolo,
@@ -63,6 +66,7 @@ func main() {
 	if useNgrok && os.Getenv("NGROK_AUTHTOKEN") == "" {
 		log.Fatal("Error: NGROK_AUTHTOKEN environment variable is not set")
 	}
+	getListOfChatsToNotify()
 
 	go func() {
 		defer wg.Done()
@@ -91,6 +95,7 @@ func loadFlags() {
 	ngrokFlag := flag.Bool("ngrok", false, "Use ngrok for the webhook")
 	addressFlag := flag.String("address", "", "Webhook address to listen to")
 	webhookSecretTokenFlag := flag.String("webhook-secret-token", "", "Telegram's webhook secret token")
+	chatListFileFlag := flag.String("chat-list-file", "", "Path file with chat IDs to notify")
 
 	flag.Parse()
 
@@ -118,6 +123,10 @@ func loadFlags() {
 	webhookSecretToken = *webhookSecretTokenFlag
 	if webhookSecretToken != "" {
 		log.Println("Using webhook secret token:", webhookSecretToken)
+	}
+	chatListFile = *chatListFileFlag
+	if chatListFile == "" {
+		log.Println("No file provided for persisting chat ids. No persistent data will be saved.")
 	}
 }
 
@@ -240,7 +249,7 @@ func authHandler(message webhookReqBody) error {
 	if password != "" && message.Message.Text != password {
 		return errors.New("Unauthorized")
 	}
-	chatsToNotify = append(chatsToNotify, message.Message.Chat.ID)
+	addChatToNotify(message.Message.Chat.ID)
 	if password != "" {
 		return messageSender(message.Message.Chat.ID, "Authorized")
 	}
@@ -325,5 +334,51 @@ func systemMessageBroker(ctx context.Context) {
 			log.Println("Error reading from socket:", err)
 		}
 		go newMessageConnection(conn)
+	}
+}
+
+func getListOfChatsToNotify() {
+	if chatListFile == "" {
+		return
+	}
+
+	file, err := os.Open(chatListFile)
+	if err != nil {
+		log.Fatal("Error opening chat list file:", err)
+	}
+	defer file.Close()
+
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		chatId, err := strconv.ParseInt(scanner.Text(), 10, 64)
+		if err != nil {
+			log.Println("Error parsing chat ID:", err)
+			continue
+		}
+		if !contains(chatsToNotify, chatId) {
+			chatsToNotify = append(chatsToNotify, chatId)
+		}
+	}
+
+	if err := scanner.Err(); err != nil {
+		log.Println("Error reading chat list file:", err)
+	}
+}
+
+func addChatToNotify(chatId int64) {
+	chatsToNotify = append(chatsToNotify, chatId)
+	if chatListFile == "" {
+		return
+	}
+
+	file, err := os.OpenFile(chatListFile, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	defer file.Close()
+
+	if _, err := file.Write([]byte(strconv.FormatInt(chatId, 10) + "\n")); err != nil {
+		log.Fatal(err)
 	}
 }
