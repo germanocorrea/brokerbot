@@ -300,7 +300,9 @@ func newMessageConnection(conn net.Conn) {
 	for i := range chatsToNotify {
 		err := messageSender(chatsToNotify[i], string(message))
 		if err != nil {
-			log.Fatal("Error sending message to telegram:", err)
+			log.Println("Error sending message to chat:", chatsToNotify[i])
+			log.Println("Message:", string(message))
+			log.Println("Error sending message to telegram:", err)
 		}
 	}
 
