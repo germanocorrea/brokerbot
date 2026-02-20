@@ -22,6 +22,8 @@ COPY --from=builder /app/brokerbot .
 
 RUN chown -R appuser:appuser /app
 
+RUN mkdir -p /run/brokerbot
+
 USER appuser
 
 ENTRYPOINT ["/app/brokerbot"]
