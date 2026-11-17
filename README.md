@@ -2,7 +2,7 @@
 
 BrokerBot is a simple Telegram bot written in Go for sending IPC messages received through a UNIX socket to a Telegram chat.
 
-> **Important!** This is a personal project , and a work in progress. Features may not be following standard conventions yet, and future updates may introduce breaking changes.
+> **Important!** This is a personal project and a work in progress. Features may not be following standard conventions yet, and future updates may introduce breaking changes.
 
 ## Motivation and Target Users
 This is designed as a simple solution for different programs and tasks running on personal computers or home servers to deliver notifications and messages in a unified and standalone way.
@@ -19,11 +19,11 @@ This is **not** meant to be a production-ready solution, nor should it be used i
 ## Prerequisites
 - Go 1.24 or later
 - A Telegram bot token (create one via [@BotFather](https://t.me/BotFather))
-- ngrok for receiving messages from the bot 
+- ngrok, or a publicly reachable address, for the Telegram webhook
 - _Optional_: socat (if you want to send messages to the socket from the command line)
 
 ## Installing and Running
-Installing isn't still in an idiomatic way for go programs, and this will be revised soon.
+Installation does not follow Go conventions (`go install`) yet; this will be revised soon.
 1. **Clone this repository:**
    ```bash
    git clone https://github.com/germanocorrea/brokerbot.git
